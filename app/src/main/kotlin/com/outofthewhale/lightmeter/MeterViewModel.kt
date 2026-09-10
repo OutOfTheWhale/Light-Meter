@@ -19,12 +19,24 @@ class MeterViewModel(private val store: SettingsStore) : ViewModel() {
     private val _held = MutableStateFlow(false)
     val held: StateFlow<Boolean> = _held
 
-    /** The wheels swap to calibration rather than competing for the same rows. */
-    private val _calibrating = MutableStateFlow(false)
-    val calibrating: StateFlow<Boolean> = _calibrating
+    /** Calibration lives behind the settings icon rather than on the meter face. */
+    private val _showingSettings = MutableStateFlow(false)
+    val showingSettings: StateFlow<Boolean> = _showingSettings
+
+    /**
+     * The wheels capture their scroll position the first time they compose, so
+     * they must not compose until the stored settings have arrived - otherwise a
+     * wheel sits on the default value while the model holds the saved one, and
+     * the highlight lands on neither.
+     */
+    private val _loaded = MutableStateFlow(false)
+    val loaded: StateFlow<Boolean> = _loaded
 
     init {
-        viewModelScope.launch { _settings.value = store.settings.first() }
+        viewModelScope.launch {
+            _settings.value = store.settings.first()
+            _loaded.value = true
+        }
     }
 
     fun onMeterState(state: MeterState) {
@@ -82,8 +94,12 @@ class MeterViewModel(private val store: SettingsStore) : ViewModel() {
         _held.value = !_held.value
     }
 
-    fun toggleCalibrating() {
-        _calibrating.value = !_calibrating.value
+    fun openSettings() {
+        _showingSettings.value = true
+    }
+
+    fun closeSettings() {
+        _showingSettings.value = false
     }
 
     /** Coming back to the app should meter the room you are in now. */

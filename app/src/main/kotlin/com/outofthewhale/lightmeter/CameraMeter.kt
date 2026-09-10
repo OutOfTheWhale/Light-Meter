@@ -2,7 +2,7 @@ package com.outofthewhale.lightmeter
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.graphics.SurfaceTexture
+import android.graphics.ImageFormat
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
@@ -11,7 +11,7 @@ import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
-import android.hardware.camera2.params.StreamConfigurationMap
+import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
 import android.util.Size
@@ -28,18 +28,6 @@ data class CameraExposure(
     val exposureSeconds: Double,
     val iso: Int,
     val aperture: Double,
-)
-
-/**
- * What the preview needs in order to draw the frame the right way up. The sensor
- * is mounted landscape and the phone is held portrait, so the buffer always
- * arrives turned on its side.
- */
-data class PreviewGeometry(
-    val bufferWidth: Int,
-    val bufferHeight: Int,
-    val sensorOrientation: Int,
-    val front: Boolean,
 )
 
 sealed interface MeterState {
@@ -60,17 +48,19 @@ sealed interface MeterState {
  *
  * The trick is not to fight the camera. Left in auto, the AE loop solves for a
  * correctly exposed frame and publishes its answer in every CaptureResult; that
- * answer is a measurement of the scene. So this class opens the camera, points
- * it at a preview surface, lets AE converge, and reads the triplet back out.
- * No pixels are ever inspected and nothing is captured to disk.
+ * answer is a measurement of the scene. So this opens the camera, lets AE
+ * converge, and reads the triplet back out.
+ *
+ * There is no preview. A capture session still needs somewhere to put its
+ * frames, so it gets a small ImageReader whose images are closed the moment they
+ * arrive - the pixels are never looked at and never leave the buffer. Metering
+ * needs the metadata, not the picture, and a meter you have to watch on screen
+ * is a worse meter than one you can point without looking.
  */
 class CameraMeter(context: Context) {
 
     private val _state = MutableStateFlow<MeterState>(MeterState.Warming)
     val state: StateFlow<MeterState> = _state
-
-    private val _geometry = MutableStateFlow<PreviewGeometry?>(null)
-    val geometry: StateFlow<PreviewGeometry?> = _geometry
 
     private val manager: CameraManager? =
         context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
@@ -79,6 +69,7 @@ class CameraMeter(context: Context) {
     private var handler: Handler? = null
     private var device: CameraDevice? = null
     private var session: CameraCaptureSession? = null
+    private var reader: ImageReader? = null
     private var surface: Surface? = null
     private var characteristics: CameraCharacteristics? = null
 
@@ -86,10 +77,10 @@ class CameraMeter(context: Context) {
     private var smoothedEv: Double? = null
     private var aeLocked = false
 
-    fun start(texture: SurfaceTexture, lens: Lens) {
+    fun start(lens: Lens) {
         stop()
         val cameraManager = manager ?: run {
-            _state.value = MeterState.Failed("No camera service on this device.")
+            _state.value = MeterState.Failed("No camera on this device.")
             return
         }
         val id = cameraIdFor(cameraManager, lens) ?: run {
@@ -101,29 +92,25 @@ class CameraMeter(context: Context) {
 
         _state.value = MeterState.Warming
         smoothedEv = null
-
-        val chars = cameraManager.getCameraCharacteristics(id)
-        characteristics = chars
-
-        val size = previewSize(chars)
-        texture.setDefaultBufferSize(size.width, size.height)
-        surface = Surface(texture)
-        _geometry.value = PreviewGeometry(
-            bufferWidth = size.width,
-            bufferHeight = size.height,
-            sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90,
-            front = lens == Lens.Front,
-        )
+        characteristics = cameraManager.getCameraCharacteristics(id)
 
         val started = HandlerThread("light-meter-camera").also { it.start() }
         thread = started
         handler = Handler(started.looper)
 
+        val size = meteringSize()
+        val imageReader = ImageReader.newInstance(size.width, size.height, ImageFormat.YUV_420_888, 2)
+        // Frames must be drained or the pipeline stalls and AE stops updating.
+        // Closing them immediately is the whole of our interest in the pixels.
+        imageReader.setOnImageAvailableListener({ r -> r.acquireLatestImage()?.close() }, handler)
+        reader = imageReader
+        surface = imageReader.surface
+
         openCamera(cameraManager, id)
     }
 
-    // Permission is checked by the screen before the preview is ever composed;
-    // lint cannot see across that boundary.
+    // Permission is checked by the screen before metering ever starts; lint
+    // cannot see across that boundary.
     @SuppressLint("MissingPermission")
     private fun openCamera(cameraManager: CameraManager, id: String) {
         try {
@@ -166,13 +153,13 @@ class CameraMeter(context: Context) {
                     }
 
                     override fun onConfigureFailed(configured: CameraCaptureSession) {
-                        _state.value = MeterState.Failed("Could not start the camera preview.")
+                        _state.value = MeterState.Failed("Could not start metering.")
                     }
                 },
                 handler,
             )
         } catch (e: Exception) {
-            _state.value = MeterState.Failed("Could not start the camera preview: " + e.message)
+            _state.value = MeterState.Failed("Could not start metering: " + e.message)
         }
     }
 
@@ -188,10 +175,6 @@ class CameraMeter(context: Context) {
             set(CaptureRequest.FLASH_MODE, CameraMetadata.FLASH_MODE_OFF)
             set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
             set(CaptureRequest.CONTROL_AE_LOCK, aeLocked)
-            set(
-                CaptureRequest.CONTROL_AF_MODE,
-                CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
-            )
         }
         try {
             captureSession.setRepeatingRequest(request.build(), captureCallback, handler)
@@ -220,8 +203,7 @@ class CameraMeter(context: Context) {
             return
         }
 
-        val reportedAperture = result.get(CaptureResult.LENS_APERTURE)?.toDouble()
-        val aperture = reportedAperture ?: fixedAperture()
+        val aperture = result.get(CaptureResult.LENS_APERTURE)?.toDouble() ?: fixedAperture()
         if (aperture == null) {
             _state.value = MeterState.Failed("This camera does not report its aperture.")
             return
@@ -281,8 +263,9 @@ class CameraMeter(context: Context) {
         session = null
         device?.close()
         device = null
-        surface?.release()
         surface = null
+        reader?.close()
+        reader = null
         thread?.quitSafely()
         thread = null
         handler = null
@@ -310,19 +293,16 @@ class CameraMeter(context: Context) {
     }
 
     /**
-     * Metering needs light, not detail. A modest preview keeps the pipeline
-     * cheap and the AE loop quick.
+     * Nothing reads these frames, so the smallest usable buffer is the right
+     * one: it keeps the pipeline cheap and the AE loop quick.
      */
-    private fun previewSize(chars: CameraCharacteristics): Size {
-        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+    private fun meteringSize(): Size {
+        val map = characteristics?.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
             ?: return Size(640, 480)
-        return pickPreviewSize(map)
-    }
-
-    private fun pickPreviewSize(map: StreamConfigurationMap): Size {
-        val sizes = map.getOutputSizes(SurfaceTexture::class.java) ?: return Size(640, 480)
-        val modest = sizes.filter { it.width <= 1280 && it.height <= 1280 }
-        return modest.maxByOrNull { it.width.toLong() * it.height }
+        val sizes = map.getOutputSizes(ImageFormat.YUV_420_888) ?: return Size(640, 480)
+        return sizes
+            .filter { it.width >= 320 && it.height >= 240 }
+            .minByOrNull { it.width.toLong() * it.height }
             ?: sizes.minByOrNull { it.width.toLong() * it.height }
             ?: Size(640, 480)
     }

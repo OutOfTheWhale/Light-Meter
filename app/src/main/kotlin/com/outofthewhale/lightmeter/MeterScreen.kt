@@ -1,5 +1,6 @@
 package com.outofthewhale.lightmeter
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,23 +12,24 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import kotlin.math.abs
-import kotlin.math.round
-import kotlin.math.roundToInt
 
 @Composable
 fun MeterScreen(viewModel: MeterViewModel, cameraGranted: Boolean) {
     val settings by viewModel.settings.collectAsState()
     val meterState by viewModel.meterState.collectAsState()
     val held by viewModel.held.collectAsState()
-    val calibrating by viewModel.calibrating.collectAsState()
+    val showingSettings by viewModel.showingSettings.collectAsState()
+    val loaded by viewModel.loaded.collectAsState()
 
     LightTheme {
         Column(
@@ -36,23 +38,7 @@ fun MeterScreen(viewModel: MeterViewModel, cameraGranted: Boolean) {
                 .background(LightTokens.colors.background)
                 .padding(horizontal = 20.dp, vertical = 14.dp),
         ) {
-            if (cameraGranted) {
-                MeterBody(
-                    settings = settings,
-                    meterState = meterState,
-                    held = held,
-                    calibrating = calibrating,
-                    onState = viewModel::onMeterState,
-                    onIso = viewModel::setIso,
-                    onAperture = viewModel::setAperture,
-                    onShutter = viewModel::setShutter,
-                    onCalibration = viewModel::setCalibration,
-                    onTogglePriority = viewModel::togglePriority,
-                    onToggleHold = viewModel::toggleHold,
-                    onToggleLens = viewModel::toggleLens,
-                    onToggleCalibrating = viewModel::toggleCalibrating,
-                )
-            } else {
+            if (!cameraGranted) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     LightText(
                         text = "The meter needs the camera.",
@@ -61,6 +47,38 @@ fun MeterScreen(viewModel: MeterViewModel, cameraGranted: Boolean) {
                         align = TextAlign.Center,
                     )
                 }
+                return@Column
+            }
+
+            // Metering runs whether or not the settings sheet is over it, so the
+            // reading is already settled when you come back out.
+            CameraMetering(
+                lens = settings.lens,
+                locked = held,
+                onState = viewModel::onMeterState,
+            )
+
+            if (!loaded) return@Column
+
+            if (showingSettings) {
+                SettingsBody(
+                    settings = settings,
+                    onCalibration = viewModel::setCalibration,
+                    onClose = viewModel::closeSettings,
+                )
+            } else {
+                MeterBody(
+                    settings = settings,
+                    meterState = meterState,
+                    held = held,
+                    onIso = viewModel::setIso,
+                    onAperture = viewModel::setAperture,
+                    onShutter = viewModel::setShutter,
+                    onTogglePriority = viewModel::togglePriority,
+                    onToggleHold = viewModel::toggleHold,
+                    onToggleLens = viewModel::toggleLens,
+                    onOpenSettings = viewModel::openSettings,
+                )
             }
         }
     }
@@ -71,83 +89,70 @@ private fun ColumnScope.MeterBody(
     settings: MeterSettings,
     meterState: MeterState,
     held: Boolean,
-    calibrating: Boolean,
-    onState: (MeterState) -> Unit,
     onIso: (Int) -> Unit,
     onAperture: (Int) -> Unit,
     onShutter: (Int) -> Unit,
-    onCalibration: (Int) -> Unit,
     onTogglePriority: () -> Unit,
     onToggleHold: () -> Unit,
     onToggleLens: () -> Unit,
-    onToggleCalibrating: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
-    CameraPreview(
-        lens = settings.lens,
-        locked = held,
-        onState = onState,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(72.dp),
-    )
-
-    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_settings),
+            contentDescription = "Settings",
+            colorFilter = ColorFilter.tint(LightTokens.colors.contentSecondary),
+            modifier = Modifier
+                .size(26.dp)
+                .lightClickable { onOpenSettings() },
+        )
+    }
 
     Readout(
         meterState = meterState,
         settings = settings,
-        held = held,
         modifier = Modifier.weight(1f),
     )
 
-    if (calibrating) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
         WheelPicker(
-            title = "CALIBRATION",
-            items = CalibrationScale,
-            selectedIndex = CalibrationScale.indexOf(settings.calibrationThirds)
-                .coerceAtLeast(0),
-            onSelected = { onCalibration(CalibrationScale[it]) },
-            label = ::formatCalibration,
-            modifier = Modifier.fillMaxWidth(),
+            title = "ISO",
+            items = IsoScale,
+            selectedIndex = settings.isoIndex,
+            onSelected = onIso,
+            label = { it.toString() },
+            modifier = Modifier.weight(1f),
         )
-    } else {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
-        ) {
-            WheelPicker(
-                title = "ISO",
-                items = IsoScale,
-                selectedIndex = settings.isoIndex,
-                onSelected = onIso,
-                label = { it.toString() },
+        // Only the locked setting gets a wheel; the other one is the answer, so
+        // putting it on a wheel would invite you to argue with the meter.
+        when (settings.priority) {
+            Priority.Aperture -> WheelPicker(
+                title = "APERTURE",
+                items = ApertureScale,
+                selectedIndex = settings.apertureIndex,
+                onSelected = onAperture,
+                label = ::formatAperture,
                 modifier = Modifier.weight(1f),
             )
-            // Only the locked setting gets a wheel; the other one is the answer,
-            // so putting it on a wheel would invite you to argue with the meter.
-            when (settings.priority) {
-                Priority.Aperture -> WheelPicker(
-                    title = "APERTURE",
-                    items = ApertureScale,
-                    selectedIndex = settings.apertureIndex,
-                    onSelected = onAperture,
-                    label = ::formatAperture,
-                    modifier = Modifier.weight(1f),
-                )
 
-                Priority.Shutter -> WheelPicker(
-                    title = "SHUTTER",
-                    items = ShutterScale,
-                    selectedIndex = settings.shutterIndex,
-                    onSelected = onShutter,
-                    label = { it.label },
-                    modifier = Modifier.weight(1f),
-                )
-            }
+            Priority.Shutter -> WheelPicker(
+                title = "SHUTTER",
+                items = ShutterScale,
+                selectedIndex = settings.shutterIndex,
+                onSelected = onShutter,
+                label = { it.label },
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 
-    Spacer(modifier = Modifier.height(10.dp))
+    Spacer(modifier = Modifier.height(12.dp))
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -155,7 +160,7 @@ private fun ColumnScope.MeterBody(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Control(
-            text = if (settings.priority == Priority.Aperture) "A" else "S",
+            text = if (settings.priority == Priority.Aperture) "LOCK A" else "LOCK S",
             onClick = onTogglePriority,
         )
         Control(text = if (held) "HELD" else "HOLD", onClick = onToggleHold)
@@ -163,8 +168,54 @@ private fun ColumnScope.MeterBody(
             text = if (settings.lens == Lens.Back) "REAR" else "FRONT",
             onClick = onToggleLens,
         )
-        Control(text = if (calibrating) "DONE" else "CAL", onClick = onToggleCalibrating)
     }
+}
+
+@Composable
+private fun ColumnScope.SettingsBody(
+    settings: MeterSettings,
+    onCalibration: (Int) -> Unit,
+    onClose: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+    ) {
+        Control(text = "DONE", onClick = onClose)
+    }
+
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        LightText(text = "CALIBRATION", variant = LightVariant.Micro, lighten = true)
+        Spacer(modifier = Modifier.height(10.dp))
+        LightText(
+            text = formatCalibration(settings.calibrationThirds) + " stops",
+            variant = LightVariant.Heading,
+        )
+        Spacer(modifier = Modifier.height(20.dp))
+        LightText(
+            text = "Meter something against a meter you trust, then dial until they agree.",
+            variant = LightVariant.Detail,
+            lighten = true,
+            align = TextAlign.Center,
+        )
+    }
+
+    WheelPicker(
+        title = "STOPS",
+        items = CalibrationScale,
+        selectedIndex = CalibrationScale.indexOf(settings.calibrationThirds).coerceAtLeast(0),
+        onSelected = { onCalibration(CalibrationScale[it]) },
+        label = ::formatCalibration,
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    Spacer(modifier = Modifier.height(12.dp))
 }
 
 @Composable
@@ -179,36 +230,29 @@ private fun Control(text: String, onClick: () -> Unit) {
 }
 
 /**
- * The answer, and the working behind it. The marked setting is what you dial in;
- * the line beneath says how far off the mark the light actually falls, because a
- * meter that hides a two-thirds-stop rounding is lying by omission.
+ * The answer, alone. Everything needed to interpret it - which film speed, which
+ * setting is locked - is already on the wheels a thumb's width below, so
+ * repeating it here only crowds the one number you came to read.
  */
 @Composable
 private fun Readout(
     meterState: MeterState,
     settings: MeterSettings,
-    held: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Column(
+    Box(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
+        contentAlignment = Alignment.Center,
     ) {
         when (meterState) {
-            is MeterState.Warming -> {
-                LightText(text = "--", variant = LightVariant.Readout)
-                LightText(text = "metering", variant = LightVariant.Detail, lighten = true)
-            }
+            is MeterState.Warming -> LightText(text = "--", variant = LightVariant.Readout)
 
-            is MeterState.Failed -> {
-                LightText(
-                    text = meterState.message,
-                    variant = LightVariant.Copy,
-                    align = TextAlign.Center,
-                    lighten = true,
-                )
-            }
+            is MeterState.Failed -> LightText(
+                text = meterState.message,
+                variant = LightVariant.Copy,
+                align = TextAlign.Center,
+                lighten = true,
+            )
 
             is MeterState.Reading -> {
                 val result = meter(
@@ -217,32 +261,15 @@ private fun Readout(
                     locked = settings.locked,
                     calibrationEv = settings.calibrationEv,
                 )
-                LightText(text = answerLine(result), variant = LightVariant.Readout)
                 LightText(
-                    text = detailLine(result),
-                    variant = LightVariant.Detail,
-                    lighten = true,
+                    text = answerLine(result),
+                    variant = LightVariant.Readout,
                     align = TextAlign.Center,
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                LightText(
-                    text = "EV " + oneDecimal(result.ev100) +
-                        "   ISO " + settings.iso +
-                        "   " + lockedLabel(settings) +
-                        if (held) "   HELD" else "",
-                    variant = LightVariant.Micro,
-                    lighten = true,
-                    align = TextAlign.Center,
+                    maxLines = 1,
                 )
             }
         }
     }
-}
-
-/** What you set, echoed back so the answer is never read out of context. */
-private fun lockedLabel(settings: MeterSettings): String = when (settings.priority) {
-    Priority.Aperture -> formatAperture(settings.aperture)
-    Priority.Shutter -> settings.shutter.label
 }
 
 /** A speed if you locked the aperture, an f-stop if you locked the speed. */
@@ -253,34 +280,4 @@ private fun answerLine(result: MeterResult): String = when (result.fit) {
         is Solution.Shutter -> answer.snapped.mark.label
         is Solution.Aperture -> formatAperture(answer.snapped.mark)
     }
-}
-
-private fun detailLine(result: MeterResult): String {
-    val outOfRange = when (result.solution) {
-        is Solution.Shutter -> when (result.fit) {
-            DialFit.TooDark -> "past 30s - open up or use faster film"
-            DialFit.TooBright -> "past 1/8000 - stop down or use slower film"
-            DialFit.InRange -> null
-        }
-
-        is Solution.Aperture -> when (result.fit) {
-            DialFit.TooDark -> "wider than f/1 - slow the shutter or use faster film"
-            DialFit.TooBright -> "past f/45 - shorten the shutter or use slower film"
-            DialFit.InRange -> null
-        }
-    }
-    if (outOfRange != null) return outOfRange
-    if (result.isClean) return "on the mark"
-
-    val exact = when (val answer = result.solution) {
-        is Solution.Shutter -> formatSeconds(answer.exactSeconds)
-        is Solution.Aperture -> formatAperture(round(answer.exactValue * 10) / 10)
-    }
-    val direction = if (result.stopsUnder > 0) "under" else "over"
-    return exact + " exact   " + oneDecimal(abs(result.stopsUnder)) + " stop " + direction
-}
-
-private fun oneDecimal(value: Double): String {
-    val rounded = (value * 10).roundToInt() / 10.0
-    return rounded.toString()
 }

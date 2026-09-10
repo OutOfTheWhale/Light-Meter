@@ -18,10 +18,10 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 
 private val RowHeight: Dp = 40.dp
 
@@ -41,16 +41,23 @@ fun <T> WheelPicker(
     modifier: Modifier = Modifier,
 ) {
     val state = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex)
-    val rowHeightPx = with(LocalDensity.current) { RowHeight.toPx() }
     val colors = LightTokens.colors
 
+    // Ask the layout which row is actually nearest the middle rather than
+    // inferring it from the first visible index: content padding shifts that by
+    // a row, and guessing wrong leaves the highlight off the detented value.
     LaunchedEffect(state, items.size) {
-        snapshotFlow { state.firstVisibleItemIndex to state.firstVisibleItemScrollOffset }
-            .collect { (index, offset) ->
-                val centred = if (offset > rowHeightPx / 2) index + 1 else index
-                val clamped = centred.coerceIn(items.indices)
-                if (clamped != selectedIndex) onSelected(clamped)
+        snapshotFlow {
+            val info = state.layoutInfo
+            val middle = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+            info.visibleItemsInfo.minByOrNull { item ->
+                abs((item.offset + item.size / 2f) - middle)
+            }?.index
+        }.collect { centred ->
+            if (centred != null && centred != selectedIndex) {
+                onSelected(centred.coerceIn(items.indices))
             }
+        }
     }
 
     Column(modifier = modifier) {

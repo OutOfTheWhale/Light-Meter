@@ -5,6 +5,10 @@ A reflected-light meter for film photography, built for the [Light Phone III](ht
 Point the phone at your scene. Set the film speed on the ISO wheel, lock either
 the aperture or the shutter speed, and the meter gives you the other one.
 
+There is no viewfinder. You point the phone and read the number, the way you
+would a handheld meter — the camera runs headless and its frames are discarded
+the moment they arrive.
+
 It is a plain Android app, not a Light SDK tool — see [Why not the SDK](#why-not-the-sdk).
 It is styled to sit beside the built-in tools: black ground, one grey, and
 Akkurat, which it loads from the LP3's system fonts rather than bundling.
@@ -32,7 +36,9 @@ N = √( t · 2^(EV100 + log2(S_film / 100)) )
 ```
 
 No pixels are inspected, nothing is captured to disk, and nothing leaves the
-phone — the app requests no network permission at all.
+phone — the app requests no network permission at all. The capture session still
+needs somewhere to put its frames, so it gets a small `ImageReader` whose images
+are closed the instant they arrive.
 
 ## Using it
 
@@ -40,19 +46,19 @@ phone — the app requests no network permission at all.
 | --- | --- |
 | **ISO wheel** | Film speed, 12–6400 in third stops |
 | **Second wheel** | Whichever setting you locked — apertures or shutter speeds |
-| **A / S** | Which one you hold still. The current exposure carries across, so the reading doesn't jump |
+| **LOCK A / LOCK S** | Which one you hold still. The current exposure carries across, so the reading doesn't jump |
 | **HOLD** | Freezes the reading, so you can look away from the scene to set your camera |
 | **REAR / FRONT** | Which lens meters |
-| **CAL** | Calibration, ±3 stops in thirds |
+| **Gear** | Calibration, ±3 stops in thirds |
 
-The big number is the answer. The line beneath gives the unrounded value and how
-far the marked setting misses — a meter that silently hides a two-thirds-stop
-rounding is lying by omission. `LOW` and `HIGH` mean the scene has fallen off the
-end of the dial entirely.
+The big number is the answer, and it is the only thing on the upper half of the
+screen — the film speed and the locked setting are already on the wheels below,
+so repeating them would only crowd the number you came to read. `LOW` and `HIGH`
+mean the scene has fallen off the end of the dial entirely.
 
 ### Calibrating it
 
-Meter something against a meter you trust, then dial `CAL` until they agree.
+Open the gear and dial until it agrees with a meter you trust.
 Phone auto-exposure targets a rendering, not a fixed reflectance, so expect to
 need a fraction of a stop. The setting persists.
 
@@ -96,3 +102,10 @@ A plain Android app sidesteps both. It never talks to the SDK server, so there i
 no token to be refused, and it uses `android.hardware.camera2` directly with an
 ordinary runtime permission. The cost is that it does not appear in the LightOS
 tool list the way an SDK tool does.
+
+## Credits
+
+The gear icon and the colour and type tokens come from the
+[Light SDK](https://github.com/lightphone/light-sdk), MIT licensed, copyright
+The Light Phone. Akkurat is not bundled — it is read from the LP3's own system
+fonts at runtime.
