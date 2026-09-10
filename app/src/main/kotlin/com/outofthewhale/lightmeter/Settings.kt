@@ -2,6 +2,7 @@ package com.outofthewhale.lightmeter
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -9,13 +10,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlin.math.roundToInt
 
-/**
- * Where the wheels were left. A meter you pick up should still be set for the
- * roll that is already in the camera.
- *
- * Calibration is held in thirds of a stop because that is the resolution of the
- * wheel that sets it; storing the double would invite drift on every round trip.
- */
 /**
  * Which setting the photographer is holding still. The meter solves for the
  * other one and shows it as the answer.
@@ -28,23 +22,46 @@ enum class Priority {
     Shutter,
 }
 
+/**
+ * Where the wheels were left. A meter you pick up should still be set for the
+ * roll that is already in the camera.
+ *
+ * Settings hold *values*, not positions on a wheel. An index means nothing once
+ * the increment changes underneath it - position 15 is ISO 400 in thirds and
+ * ISO 6400 in full stops - so the film speed is stored as a film speed and the
+ * nearest available mark is found when it is needed.
+ *
+ * Calibration is held in thirds of a stop because that is the resolution of the
+ * wheel that sets it; storing the double would invite drift on every round trip.
+ */
 data class MeterSettings(
-    val isoIndex: Int = DefaultIsoIndex,
-    val apertureIndex: Int = DefaultApertureIndex,
-    val shutterIndex: Int = DefaultShutterIndex,
+    val iso: Int = 400,
+    val aperture: Double = 8.0,
+    val shutterSeconds: Double = 1.0 / 125,
+    val isoStep: Step = Step.Third,
+    val apertureStep: Step = Step.Third,
+    val shutterStep: Step = Step.Full,
     val priority: Priority = Priority.Aperture,
     val calibrationThirds: Int = 0,
     val lens: Lens = Lens.Back,
 ) {
-    val iso: Int get() = IsoScale[isoIndex.coerceIn(IsoScale.indices)]
-    val aperture: Double get() = ApertureScale[apertureIndex.coerceIn(ApertureScale.indices)]
-    val shutter: ShutterSpeed get() = ShutterScale[shutterIndex.coerceIn(ShutterScale.indices)]
+    val isoOptions: List<Int> get() = isoScale(isoStep)
+    val apertureOptions: List<Double> get() = apertureScale(apertureStep)
+    val shutterOptions: List<ShutterSpeed> get() = shutterScale(shutterStep)
+
+    /** The stored value pinned to the nearest mark the current increment offers. */
+    val markedIso: Int get() = nearestIso(isoOptions, iso)
+    val markedAperture: Double get() = nearestAperture(apertureOptions, aperture)
+    val markedShutter: ShutterSpeed get() = nearestShutter(shutterOptions, shutterSeconds)
+
     val calibrationEv: Double get() = calibrationThirds / 3.0
+
+    val dials: Dials get() = Dials(aperture = apertureOptions, shutter = shutterOptions)
 
     val locked: Locked
         get() = when (priority) {
-            Priority.Aperture -> Locked.Aperture(aperture)
-            Priority.Shutter -> Locked.Shutter(shutter)
+            Priority.Aperture -> Locked.Aperture(markedAperture)
+            Priority.Shutter -> Locked.Shutter(markedShutter)
         }
 }
 
@@ -67,36 +84,49 @@ fun formatCalibration(thirds: Int): String {
 
 class SettingsStore(private val dataStore: DataStore<Preferences>) {
 
-    private val isoKey = intPreferencesKey("isoIndex")
-    private val apertureKey = intPreferencesKey("apertureIndex")
-    private val shutterKey = intPreferencesKey("shutterIndex")
+    private val isoKey = intPreferencesKey("iso")
+    private val apertureKey = doublePreferencesKey("aperture")
+    private val shutterKey = doublePreferencesKey("shutterSeconds")
+    private val isoStepKey = stringPreferencesKey("isoStep")
+    private val apertureStepKey = stringPreferencesKey("apertureStep")
+    private val shutterStepKey = stringPreferencesKey("shutterStep")
     private val priorityKey = stringPreferencesKey("priority")
     private val calibrationKey = intPreferencesKey("calibrationThirds")
     private val lensKey = stringPreferencesKey("lens")
 
     val settings: Flow<MeterSettings> = dataStore.data.map { preferences ->
+        val defaults = MeterSettings()
         MeterSettings(
-            isoIndex = preferences[isoKey] ?: DefaultIsoIndex,
-            apertureIndex = preferences[apertureKey] ?: DefaultApertureIndex,
-            shutterIndex = preferences[shutterKey] ?: DefaultShutterIndex,
+            iso = preferences[isoKey] ?: defaults.iso,
+            aperture = preferences[apertureKey] ?: defaults.aperture,
+            shutterSeconds = preferences[shutterKey] ?: defaults.shutterSeconds,
+            isoStep = preferences[isoStepKey].toStep(defaults.isoStep),
+            apertureStep = preferences[apertureStepKey].toStep(defaults.apertureStep),
+            shutterStep = preferences[shutterStepKey].toStep(defaults.shutterStep),
             priority = if (preferences[priorityKey] == Priority.Shutter.name) {
                 Priority.Shutter
             } else {
                 Priority.Aperture
             },
-            calibrationThirds = preferences[calibrationKey] ?: 0,
+            calibrationThirds = preferences[calibrationKey] ?: defaults.calibrationThirds,
             lens = if (preferences[lensKey] == Lens.Front.name) Lens.Front else Lens.Back,
         )
     }
 
     suspend fun save(settings: MeterSettings) {
         dataStore.edit { preferences ->
-            preferences[isoKey] = settings.isoIndex
-            preferences[apertureKey] = settings.apertureIndex
-            preferences[shutterKey] = settings.shutterIndex
+            preferences[isoKey] = settings.iso
+            preferences[apertureKey] = settings.aperture
+            preferences[shutterKey] = settings.shutterSeconds
+            preferences[isoStepKey] = settings.isoStep.name
+            preferences[apertureStepKey] = settings.apertureStep.name
+            preferences[shutterStepKey] = settings.shutterStep.name
             preferences[priorityKey] = settings.priority.name
             preferences[calibrationKey] = settings.calibrationThirds
             preferences[lensKey] = settings.lens.name
         }
     }
+
+    private fun String?.toStep(fallback: Step): Step =
+        Step.entries.firstOrNull { it.name == this } ?: fallback
 }

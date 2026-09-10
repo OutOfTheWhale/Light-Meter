@@ -1,6 +1,7 @@
 package com.outofthewhale.lightmeter
 
 import kotlin.math.abs
+import kotlin.math.log2
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -15,14 +16,20 @@ class ExposureTest {
         )
     }
 
-    private fun atAperture(ev100: Double, iso: Int, f: Double) =
-        meter(ev100 = ev100, filmIso = iso, locked = Locked.Aperture(f))
+    private val fullDials = Dials(
+        aperture = apertureScale(Step.Full),
+        shutter = shutterScale(Step.Full),
+    )
 
-    private fun atShutter(ev100: Double, iso: Int, label: String) =
+    private fun atAperture(ev100: Double, iso: Int, f: Double, dials: Dials = fullDials) =
+        meter(ev100 = ev100, filmIso = iso, locked = Locked.Aperture(f), dials = dials)
+
+    private fun atShutter(ev100: Double, iso: Int, label: String, dials: Dials = fullDials) =
         meter(
             ev100 = ev100,
             filmIso = iso,
-            locked = Locked.Shutter(ShutterScale.first { it.label == label }),
+            locked = Locked.Shutter(dials.shutter.first { it.label == label }),
+            dials = dials,
         )
 
     @Test
@@ -107,6 +114,7 @@ class ExposureTest {
                 ev100 = 12.0,
                 filmIso = 100,
                 locked = Locked.Aperture(8.0),
+                dials = fullDials,
                 calibrationEv = -1.0,
             ).solution,
         )
@@ -117,12 +125,12 @@ class ExposureTest {
     @Test
     fun `snapping reports which way the marked speed misses`() {
         // Ideal time longer than the mark: the mark lets in less light, so it underexposes.
-        val underexposing = snapShutter(1.0 / 90)
+        val underexposing = snapShutter(1.0 / 90, shutterScale(Step.Full))
         assertEquals("1/125", underexposing.mark.label)
         assertTrue(underexposing.stopsUnder > 0, "1/125 is faster than 1/90, so it underexposes")
         assertTrue(!underexposing.isClean)
 
-        val exact = snapShutter(1.0 / 125)
+        val exact = snapShutter(1.0 / 125, shutterScale(Step.Full))
         assertEquals("1/125", exact.mark.label)
         assertTrue(exact.isClean)
     }
@@ -130,11 +138,11 @@ class ExposureTest {
     @Test
     fun `snapping an aperture flips the sign the other way`() {
         // A wider mark than ideal lets in more light, so it overexposes.
-        val wider = snapAperture(6.5)
+        val wider = snapAperture(6.5, apertureScale(Step.Third))
         assertEquals(6.3, wider.mark)
         assertTrue(wider.stopsUnder < 0, "f/6.3 is wider than f/6.5, so it overexposes")
 
-        val exact = snapAperture(8.0)
+        val exact = snapAperture(8.0, apertureScale(Step.Third))
         assertEquals(8.0, exact.mark)
         assertTrue(exact.isClean)
     }
@@ -161,13 +169,85 @@ class ExposureTest {
 class ScalesTest {
 
     @Test
-    fun `scales are ordered and hold their defaults`() {
-        assertEquals(IsoScale.sorted(), IsoScale)
-        assertEquals(ApertureScale.sorted(), ApertureScale)
-        assertEquals(ShutterScale.map { it.seconds }.sorted(), ShutterScale.map { it.seconds })
-        assertEquals(400, IsoScale[DefaultIsoIndex])
-        assertEquals(8.0, ApertureScale[DefaultApertureIndex])
-        assertEquals("1/125", ShutterScale[DefaultShutterIndex].label)
+    fun `every scale is ordered at every increment`() {
+        Step.entries.forEach { step ->
+            assertEquals(isoScale(step).sorted(), isoScale(step), "iso $step")
+            assertEquals(apertureScale(step).sorted(), apertureScale(step), "aperture $step")
+            val seconds = shutterScale(step).map { it.seconds }
+            assertEquals(seconds.sorted(), seconds, "shutter $step")
+        }
+    }
+
+    @Test
+    fun `coarser increments are strict subsets of finer ones`() {
+        // A full stop has to be the same f/8 whichever wheel you reached it on.
+        assertTrue(apertureScale(Step.Third).containsAll(apertureScale(Step.Full)))
+        assertTrue(isoScale(Step.Third).containsAll(isoScale(Step.Full)))
+        assertTrue(
+            shutterScale(Step.Third).map { it.label }
+                .containsAll(shutterScale(Step.Full).map { it.label }),
+        )
+        assertTrue(
+            shutterScale(Step.Half).map { it.label }
+                .containsAll(shutterScale(Step.Full).map { it.label }),
+        )
+    }
+
+    @Test
+    fun `each increment really is that many stops apart`() {
+        // Individual marks are rounded for printing - f/1.2 stands in for f/1.189 -
+        // so a single gap can be a tenth of a stop out and still be right. The mean
+        // gap cannot: it pins the whole scale, and separates thirds from halves from
+        // full stops with room to spare.
+        fun meanGap(values: List<Double>): Double =
+            values.zipWithNext { a, b -> log2(b / a) }.average()
+
+        listOf(Step.Full to 1.0, Step.Half to 0.5, Step.Third to 1.0 / 3).forEach { (step, stops) ->
+            // Exposure goes as the square of the f-number, so squares give stops.
+            val aperture = meanGap(apertureScale(step).map { it * it })
+            assertTrue(abs(aperture - stops) < 0.03, "aperture $step averaged $aperture")
+
+            val iso = meanGap(isoScale(step).map { it.toDouble() })
+            assertTrue(abs(iso - stops) < 0.03, "iso $step averaged $iso")
+
+            val shutter = meanGap(shutterScale(step).map { it.seconds })
+            assertTrue(abs(shutter - stops) < 0.03, "shutter $step averaged $shutter")
+        }
+    }
+
+    @Test
+    fun `changing increment keeps the value and finds the nearest mark`() {
+        // ISO 640 is a third-stop speed; in full stops the nearest is 800, not 400,
+        // because nearness is measured in stops rather than by subtraction.
+        assertEquals(800, nearestIso(isoScale(Step.Full), 640))
+        assertEquals(400, nearestIso(isoScale(Step.Full), 500))
+        assertEquals(400, nearestIso(isoScale(Step.Full), 400))
+
+        assertEquals(8.0, nearestAperture(apertureScale(Step.Full), 7.1))
+        assertEquals(5.6, nearestAperture(apertureScale(Step.Full), 6.3))
+
+        assertEquals("1/125", nearestShutter(shutterScale(Step.Full), 1.0 / 100).label)
+        assertEquals("1/60", nearestShutter(shutterScale(Step.Full), 1.0 / 50).label)
+    }
+
+    @Test
+    fun `the answer lands on a mark the chosen increment offers`() {
+        // A body with full-stop detents must never be told to use f/7.1.
+        val full = meter(
+            ev100 = 12.3,
+            filmIso = 400,
+            locked = Locked.Shutter(ShutterSpeed(1.0 / 500, "1/500")),
+            dials = Dials(apertureScale(Step.Full), shutterScale(Step.Full)),
+        )
+        assertTrue(assertIs<Solution.Aperture>(full.solution).snapped.mark in apertureScale(Step.Full))
+
+        val third = meter(
+            ev100 = 12.3,
+            filmIso = 400,
+            locked = Locked.Shutter(ShutterSpeed(1.0 / 500, "1/500")),
+            dials = Dials(apertureScale(Step.Third), shutterScale(Step.Third)),
+        )
+        assertTrue(assertIs<Solution.Aperture>(third.solution).snapped.mark in apertureScale(Step.Third))
     }
 
     @Test

@@ -72,7 +72,7 @@ typealias SnappedShutter = Snapped<ShutterSpeed>
 typealias SnappedAperture = Snapped<Double>
 
 /** Nearest mark on the shutter dial, measured in stops rather than seconds. */
-fun snapShutter(seconds: Double, scale: List<ShutterSpeed> = ShutterScale): SnappedShutter {
+fun snapShutter(seconds: Double, scale: List<ShutterSpeed>): SnappedShutter {
     val nearest = scale.minBy { abs(log2(seconds / it.seconds)) }
     return Snapped(nearest, log2(seconds / nearest.seconds))
 }
@@ -81,7 +81,7 @@ fun snapShutter(seconds: Double, scale: List<ShutterSpeed> = ShutterScale): Snap
  * Nearest mark on the aperture ring. A wider mark than the ideal lets in more
  * light, so it overexposes - hence the sign flip against the shutter case.
  */
-fun snapAperture(value: Double, scale: List<Double> = ApertureScale): SnappedAperture {
+fun snapAperture(value: Double, scale: List<Double>): SnappedAperture {
     val nearest = scale.minBy { abs(log2(value / it)) }
     return Snapped(nearest, 2 * log2(nearest / value))
 }
@@ -89,7 +89,7 @@ fun snapAperture(value: Double, scale: List<Double> = ApertureScale): SnappedApe
 /** Whether the ideal setting falls off either end of the dial, and which end. */
 enum class DialFit { InRange, TooDark, TooBright }
 
-fun shutterFit(seconds: Double, scale: List<ShutterSpeed> = ShutterScale): DialFit = when {
+fun shutterFit(seconds: Double, scale: List<ShutterSpeed>): DialFit = when {
     seconds > scale.last().seconds -> DialFit.TooDark
     seconds < scale.first().seconds -> DialFit.TooBright
     else -> DialFit.InRange
@@ -99,7 +99,7 @@ fun shutterFit(seconds: Double, scale: List<ShutterSpeed> = ShutterScale): DialF
  * A lens cannot open past its widest, so an ideal f-number below the ring means
  * the scene is too dark to shoot at the speed you locked.
  */
-fun apertureFit(value: Double, scale: List<Double> = ApertureScale): DialFit = when {
+fun apertureFit(value: Double, scale: List<Double>): DialFit = when {
     value < scale.first() -> DialFit.TooDark
     value > scale.last() -> DialFit.TooBright
     else -> DialFit.InRange
@@ -149,10 +149,20 @@ data class MeterResult(
         }
 }
 
+/**
+ * The dials the camera in your hand actually has. The answer is snapped to
+ * these, so a body with full-stop detents is never told to use f/7.1.
+ */
+data class Dials(
+    val aperture: List<Double>,
+    val shutter: List<ShutterSpeed>,
+)
+
 fun meter(
     ev100: Double,
     filmIso: Int,
     locked: Locked,
+    dials: Dials,
     calibrationEv: Double = 0.0,
 ): MeterResult {
     val corrected = ev100 + calibrationEv
@@ -162,8 +172,8 @@ fun meter(
             MeterResult(
                 ev100 = corrected,
                 evAtFilm = evAtFilmSpeed(corrected, filmIso),
-                solution = Solution.Shutter(exact, snapShutter(exact)),
-                fit = shutterFit(exact),
+                solution = Solution.Shutter(exact, snapShutter(exact, dials.shutter)),
+                fit = shutterFit(exact, dials.shutter),
             )
         }
 
@@ -172,8 +182,8 @@ fun meter(
             MeterResult(
                 ev100 = corrected,
                 evAtFilm = evAtFilmSpeed(corrected, filmIso),
-                solution = Solution.Aperture(exact, snapAperture(exact)),
-                fit = apertureFit(exact),
+                solution = Solution.Aperture(exact, snapAperture(exact, dials.aperture)),
+                fit = apertureFit(exact, dials.aperture),
             )
         }
     }

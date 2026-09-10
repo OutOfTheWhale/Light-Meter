@@ -44,17 +44,32 @@ are closed the instant they arrive.
 
 | Control | What it does |
 | --- | --- |
-| **ISO wheel** | Film speed, 12–6400 in third stops |
+| **ISO wheel** | Film speed, 12–6400 |
 | **Second wheel** | Whichever setting you locked — apertures or shutter speeds |
 | **LOCK A / LOCK S** | Which one you hold still. The current exposure carries across, so the reading doesn't jump |
 | **HOLD** | Freezes the reading, so you can look away from the scene to set your camera |
 | **REAR / FRONT** | Which lens meters |
-| **Gear** | Calibration, ±3 stops in thirds |
+| **Gear** | Increments and calibration |
 
 The big number is the answer, and it is the only thing on the upper half of the
 screen — the film speed and the locked setting are already on the wheels below,
 so repeating them would only crowd the number you came to read. `LOW` and `HIGH`
 mean the scene has fallen off the end of the dial entirely.
+
+### Increments
+
+Each dial can run in full stops, halves or thirds, set independently under the
+gear. This changes the numbers the wheels offer *and* the numbers the meter will
+answer with: put the aperture on full stops and it will never tell you f/7.1,
+because a body with full-stop detents has no way to accept it.
+
+Values survive a change of increment. Switching ISO from thirds to full stops
+moves 640 to 800 rather than 400 — nearness is measured in stops, not by
+subtraction — and switching back leaves it on 800.
+
+The scales are the conventional printed ones rather than computed powers of two,
+so half-stop film speeds read 140, 280, 560 as they do on a camera, not 141, 283,
+566.
 
 ### Calibrating it
 

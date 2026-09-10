@@ -49,11 +49,44 @@ class MeterViewModel(private val store: SettingsStore) : ViewModel() {
         viewModelScope.launch { store.save(next) }
     }
 
-    fun setIso(index: Int) = update { it.copy(isoIndex = index) }
+    fun setIso(index: Int) = update { settings ->
+        settings.copy(iso = settings.isoOptions.getOrElse(index) { settings.iso })
+    }
 
-    fun setAperture(index: Int) = update { it.copy(apertureIndex = index) }
+    fun setAperture(index: Int) = update { settings ->
+        settings.copy(aperture = settings.apertureOptions.getOrElse(index) { settings.aperture })
+    }
 
-    fun setShutter(index: Int) = update { it.copy(shutterIndex = index) }
+    fun setShutter(index: Int) = update { settings ->
+        val marked = settings.shutterOptions.getOrNull(index)
+        settings.copy(shutterSeconds = marked?.seconds ?: settings.shutterSeconds)
+    }
+
+    /**
+     * Changing an increment keeps the value and moves it to the nearest mark the
+     * new increment offers, rather than keeping the position and silently
+     * changing the value underneath it.
+     */
+    fun setIsoStep(step: Step) = update { settings ->
+        settings.copy(isoStep = step, iso = nearestIso(isoScale(step), settings.iso))
+    }
+
+    fun setApertureStep(step: Step) = update { settings ->
+        settings.copy(
+            apertureStep = step,
+            aperture = nearestAperture(apertureScale(step), settings.aperture),
+        )
+    }
+
+    fun setShutterStep(step: Step) = update { settings ->
+        settings.copy(
+            shutterStep = step,
+            shutterSeconds = nearestShutter(
+                shutterScale(step),
+                settings.shutterSeconds,
+            ).seconds,
+        )
+    }
 
     fun setCalibration(thirds: Int) = update { it.copy(calibrationThirds = thirds) }
 
@@ -65,23 +98,27 @@ class MeterViewModel(private val store: SettingsStore) : ViewModel() {
     fun togglePriority() = update { settings ->
         val reading = _meterState.value as? MeterState.Reading
         val solved = reading?.let {
-            meter(it.ev100, settings.iso, settings.locked, settings.calibrationEv)
+            meter(
+                ev100 = it.ev100,
+                filmIso = settings.markedIso,
+                locked = settings.locked,
+                dials = settings.dials,
+                calibrationEv = settings.calibrationEv,
+            )
         }?.solution
         when (settings.priority) {
             Priority.Aperture -> settings.copy(
                 priority = Priority.Shutter,
-                shutterIndex = (solved as? Solution.Shutter)
-                    ?.let { ShutterScale.indexOf(it.snapped.mark) }
-                    ?.takeIf { it >= 0 }
-                    ?: settings.shutterIndex,
+                shutterSeconds = (solved as? Solution.Shutter)
+                    ?.snapped?.mark?.seconds
+                    ?: settings.shutterSeconds,
             )
 
             Priority.Shutter -> settings.copy(
                 priority = Priority.Aperture,
-                apertureIndex = (solved as? Solution.Aperture)
-                    ?.let { ApertureScale.indexOf(it.snapped.mark) }
-                    ?.takeIf { it >= 0 }
-                    ?: settings.apertureIndex,
+                aperture = (solved as? Solution.Aperture)
+                    ?.snapped?.mark
+                    ?: settings.aperture,
             )
         }
     }

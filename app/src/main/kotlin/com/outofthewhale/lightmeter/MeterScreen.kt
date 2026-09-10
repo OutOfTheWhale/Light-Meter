@@ -63,6 +63,9 @@ fun MeterScreen(viewModel: MeterViewModel, cameraGranted: Boolean) {
             if (showingSettings) {
                 SettingsBody(
                     settings = settings,
+                    onIsoStep = viewModel::setIsoStep,
+                    onApertureStep = viewModel::setApertureStep,
+                    onShutterStep = viewModel::setShutterStep,
                     onCalibration = viewModel::setCalibration,
                     onClose = viewModel::closeSettings,
                 )
@@ -121,10 +124,11 @@ private fun ColumnScope.MeterBody(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(20.dp),
     ) {
+        val isoOptions = settings.isoOptions
         WheelPicker(
             title = "ISO",
-            items = IsoScale,
-            selectedIndex = settings.isoIndex,
+            items = isoOptions,
+            selectedIndex = isoOptions.indexOf(settings.markedIso),
             onSelected = onIso,
             label = { it.toString() },
             modifier = Modifier.weight(1f),
@@ -132,23 +136,29 @@ private fun ColumnScope.MeterBody(
         // Only the locked setting gets a wheel; the other one is the answer, so
         // putting it on a wheel would invite you to argue with the meter.
         when (settings.priority) {
-            Priority.Aperture -> WheelPicker(
-                title = "APERTURE",
-                items = ApertureScale,
-                selectedIndex = settings.apertureIndex,
-                onSelected = onAperture,
-                label = ::formatAperture,
-                modifier = Modifier.weight(1f),
-            )
+            Priority.Aperture -> {
+                val options = settings.apertureOptions
+                WheelPicker(
+                    title = "APERTURE",
+                    items = options,
+                    selectedIndex = options.indexOf(settings.markedAperture),
+                    onSelected = onAperture,
+                    label = ::formatAperture,
+                    modifier = Modifier.weight(1f),
+                )
+            }
 
-            Priority.Shutter -> WheelPicker(
-                title = "SHUTTER",
-                items = ShutterScale,
-                selectedIndex = settings.shutterIndex,
-                onSelected = onShutter,
-                label = { it.label },
-                modifier = Modifier.weight(1f),
-            )
+            Priority.Shutter -> {
+                val options = settings.shutterOptions
+                WheelPicker(
+                    title = "SHUTTER",
+                    items = options,
+                    selectedIndex = options.indexOf(settings.markedShutter),
+                    onSelected = onShutter,
+                    label = { it.label },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 
@@ -218,6 +228,9 @@ private fun StateControl(
 @Composable
 private fun ColumnScope.SettingsBody(
     settings: MeterSettings,
+    onIsoStep: (Step) -> Unit,
+    onApertureStep: (Step) -> Unit,
+    onShutterStep: (Step) -> Unit,
     onCalibration: (Int) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -233,25 +246,22 @@ private fun ColumnScope.SettingsBody(
             .weight(1f)
             .fillMaxWidth(),
         verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        LightText(text = "CALIBRATION", variant = LightVariant.Micro, lighten = true)
-        Spacer(modifier = Modifier.height(10.dp))
         LightText(
-            text = formatCalibration(settings.calibrationThirds) + " stops",
-            variant = LightVariant.Heading,
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        LightText(
-            text = "Meter something against a meter you trust, then dial until they agree.",
-            variant = LightVariant.Detail,
+            text = "INCREMENTS",
+            variant = LightVariant.Micro,
             lighten = true,
             align = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
         )
+        Spacer(modifier = Modifier.height(10.dp))
+        StepRow("ISO", settings.isoStep, onIsoStep)
+        StepRow("APERTURE", settings.apertureStep, onApertureStep)
+        StepRow("SHUTTER", settings.shutterStep, onShutterStep)
     }
 
     WheelPicker(
-        title = "STOPS",
+        title = "CALIBRATION",
         items = CalibrationScale,
         selectedIndex = CalibrationScale.indexOf(settings.calibrationThirds).coerceAtLeast(0),
         onSelected = { onCalibration(CalibrationScale[it]) },
@@ -260,6 +270,45 @@ private fun ColumnScope.SettingsBody(
     )
 
     Spacer(modifier = Modifier.height(12.dp))
+}
+
+/**
+ * One dial's increment. The chosen one is white and the rest grey, which is the
+ * whole of the state - there is no separate indicator to fall out of step with
+ * it, and nothing here reads as an instruction.
+ */
+@Composable
+private fun StepRow(
+    name: String,
+    selected: Step,
+    onSelect: (Step) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LightText(
+            text = name,
+            variant = LightVariant.Detail,
+            lighten = true,
+            maxLines = 1,
+            modifier = Modifier.weight(1f),
+        )
+        Step.entries.forEach { step ->
+            LightText(
+                text = step.label,
+                variant = LightVariant.Detail,
+                lighten = step != selected,
+                align = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier
+                    .lightClickable { onSelect(step) }
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+        }
+    }
 }
 
 @Composable
@@ -301,8 +350,9 @@ private fun Readout(
             is MeterState.Reading -> {
                 val result = meter(
                     ev100 = meterState.ev100,
-                    filmIso = settings.iso,
+                    filmIso = settings.markedIso,
                     locked = settings.locked,
+                    dials = settings.dials,
                     calibrationEv = settings.calibrationEv,
                 )
                 LightText(
