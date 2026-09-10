@@ -59,12 +59,18 @@ fun <T> WheelPicker(
             .collect { scrolling -> if (scrolling) touched = true }
     }
 
+    // Which row is under the detent. An item's offset is measured from the
+    // content area - that is, from *after* the top padding - while the viewport
+    // is the full three rows including it. So the detent sits half a row into
+    // offset space, not half a viewport: with a row of padding above, the middle
+    // of a three-row viewport is one row further down than the row you are
+    // actually looking at, which is what made 500 bold while 400 was centred.
     LaunchedEffect(state, items.size) {
         snapshotFlow {
             val info = state.layoutInfo
-            val middle = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+            val detent = info.viewportSize.height / 2f - info.beforeContentPadding
             info.visibleItemsInfo.minByOrNull { item ->
-                abs((item.offset + item.size / 2f) - middle)
+                abs((item.offset + item.size / 2f) - detent)
             }?.index
         }.collect { centred ->
             if (touched && centred != null && centred != selectedIndex) {
