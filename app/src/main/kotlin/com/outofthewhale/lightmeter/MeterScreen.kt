@@ -156,17 +156,61 @@ private fun ColumnScope.MeterBody(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Control(
-            text = if (settings.priority == Priority.Aperture) "LOCK A" else "LOCK S",
+        StateControl(
+            caption = "LOCK",
+            value = if (settings.priority == Priority.Aperture) "APERTURE" else "SHUTTER",
             onClick = onTogglePriority,
+            modifier = Modifier.weight(1f),
         )
-        Control(text = if (held) "HELD" else "HOLD", onClick = onToggleHold)
-        Control(
-            text = if (settings.lens == Lens.Back) "REAR" else "FRONT",
+        StateControl(
+            caption = "READING",
+            value = if (held) "HELD" else "LIVE",
+            onClick = onToggleHold,
+            modifier = Modifier.weight(1f),
+        )
+        StateControl(
+            caption = "LENS",
+            value = if (settings.lens == Lens.Back) "REAR" else "FRONT",
             onClick = onToggleLens,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * Names the thing above and its current state below, the way the wheels do.
+ *
+ * A bare word here reads as an instruction rather than a state: sitting beside
+ * HOLD, which is something you do, "REAR" looks like "tap for rear" - which says
+ * the exact opposite of what is true, since it is the lens already metering.
+ */
+@Composable
+private fun StateControl(
+    caption: String,
+    value: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .lightClickable { onClick() }
+            .padding(vertical = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        LightText(
+            text = caption,
+            variant = LightVariant.Micro,
+            lighten = true,
+            align = TextAlign.Center,
+            maxLines = 1,
+        )
+        LightText(
+            text = value,
+            variant = LightVariant.Detail,
+            align = TextAlign.Center,
+            maxLines = 1,
         )
     }
 }
