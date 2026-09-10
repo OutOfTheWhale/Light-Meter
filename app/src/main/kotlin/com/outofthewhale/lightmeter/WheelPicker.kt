@@ -14,6 +14,10 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,9 +47,18 @@ fun <T> WheelPicker(
     val state = rememberLazyListState(initialFirstVisibleItemIndex = selectedIndex)
     val colors = LightTokens.colors
 
-    // Ask the layout which row is actually nearest the middle rather than
-    // inferring it from the first visible index: content padding shifts that by
-    // a row, and guessing wrong leaves the highlight off the detented value.
+    // The wheel takes its starting position from the model, so it must not
+    // report a position back until a hand has actually moved it. Reporting on
+    // the initial layout closes a loop - position in, position out - and any
+    // disagreement between the two then compounds every time the wheel is
+    // remounted, which is what made the settings climb the scale on their own
+    // between launches.
+    var touched by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        snapshotFlow { state.isScrollInProgress }
+            .collect { scrolling -> if (scrolling) touched = true }
+    }
+
     LaunchedEffect(state, items.size) {
         snapshotFlow {
             val info = state.layoutInfo
@@ -54,7 +67,7 @@ fun <T> WheelPicker(
                 abs((item.offset + item.size / 2f) - middle)
             }?.index
         }.collect { centred ->
-            if (centred != null && centred != selectedIndex) {
+            if (touched && centred != null && centred != selectedIndex) {
                 onSelected(centred.coerceIn(items.indices))
             }
         }
