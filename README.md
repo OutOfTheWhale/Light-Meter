@@ -46,9 +46,9 @@ are closed the instant they arrive.
 | --- | --- |
 | **ISO wheel** | Film speed, 12–6400 |
 | **Second wheel** | Whichever setting you locked — apertures or shutter speeds |
-| **LOCK A / LOCK S** | Which one you hold still. The current exposure carries across, so the reading doesn't jump |
-| **HOLD** | Freezes the reading, so you can look away from the scene to set your camera |
-| **REAR / FRONT** | Which lens meters |
+| **LOCK** | Which setting you hold still — APERTURE or SHUTTER. The current exposure carries across, so the reading doesn't jump |
+| **READING** | LIVE or HELD. Held freezes the reading, so you can look away from the scene to set your camera |
+| **LENS** | REAR or FRONT — the lens currently metering |
 | **Gear** | Increments and calibration |
 
 The big number is the answer, and it is the only thing on the upper half of the
