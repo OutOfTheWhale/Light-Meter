@@ -8,3 +8,7 @@ local.properties
 captures/
 .externalNativeBuild/
 .cxx/
+
+# Signing material stays local; a public repo is no place for a release key.
+keystore/
+keystore.properties

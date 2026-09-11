@@ -93,6 +93,21 @@ inside film's latitude.
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+For a release build, put a `keystore.properties` at the repo root pointing at
+your own signing key:
+
+```
+storeFile=keystore/your.jks
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
+
+Both it and `keystore/` are gitignored — a public repository is no place for a
+release key. Without them the project still builds; the release APK just comes
+out unsigned. `./gradlew :app:assembleRelease` produces about 1.9 MB against the
+debug build's 24 MB.
+
 `./gradlew :app:testDebugUnitTest` runs the exposure tests — pure JVM, covering
 both priority directions, the EV round trip, and the dial limits.
 

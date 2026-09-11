@@ -1,0 +1,78 @@
+<!--
+  A rangefinder, drawn to sit inside an adaptive icon's safe zone: everything
+  stays within 36 units of the centre so a round mask cannot crop the strap
+  lugs. Black shapes read as cut-outs against the black background layer, the
+  same way the artwork does.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- strap lugs, tucked behind the body -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M22,52 h-2 a3,3 0 0 0 0,6 h2 z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M86,52 h2 a3,3 0 0 1 0,6 h-2 z" />
+
+    <!-- top plate furniture: rewind knob, release, accessory shoe -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M29,40 h10 v4 h-10 z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M41,41 h5 v3 h-5 z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M68,39 h12 v5 h-12 z" />
+
+    <!-- body -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M26,44 h56 a4,4 0 0 1 4,4 v22 a4,4 0 0 1 -4,4 h-56 a4,4 0 0 1 -4,-4 v-22 a4,4 0 0 1 4,-4 z" />
+
+    <!-- seam between top plate and body -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M22,51 h64 v1 h-64 z" />
+
+    <!-- rangefinder and viewfinder windows -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M58,46 h6 v4 h-6 z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M68,45 h10 v6 h-10 z" />
+
+    <!-- self-timer lever and its pivot -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M35.4,48 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M35.8,53 h2.4 v6 h-2.4 z" />
+
+    <!-- lens: outer ring, bright barrel, glass -->
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M40,60 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M42.2,60 a11.8,11.8 0 1,0 23.6,0 a11.8,11.8 0 1,0 -23.6,0 z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M44.4,60 a9.6,9.6 0 1,0 19.2,0 a9.6,9.6 0 1,0 -19.2,0 z" />
+
+    <!-- reflection -->
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M49.2,56.4 a6.4,6.4 0 0 1 4.6,-2.8" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M47.1,59 a0.95,0.95 0 1,0 1.9,0 a0.95,0.95 0 1,0 -1.9,0 z" />
+</vector>
